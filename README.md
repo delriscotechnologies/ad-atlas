@@ -125,7 +125,9 @@ $env:AD_ATLAS_RUN_INTEGRATION = '1'
 Invoke-Pester -Path .\tests\ADAtlas.Integration.Tests.ps1
 ```
 
-Store real reports outside public repositories, restrict access to them, and remove them according to your organization's retention policy. See [SECURITY.md](SECURITY.md) for reporting and handling guidance.
+Store real reports outside public repositories, restrict access to them, and remove them according to your organization's retention policy.
+
+See [SECURITY.md](SECURITY.md) for reporting and handling guidance.
 
 ## License
 
