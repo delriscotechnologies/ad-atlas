@@ -55,7 +55,15 @@ Del Risco Technologies  |  v1.3.0
  CSV            : C:\Users\user\Documents\AD-ATLAS-Reports\AD-ATLAS_20260715_193500_a1b2c3.csv
 ```
 
-The CSV stays deliberately small. `Department` is the useful grouping, `ComputerName` identifies the object, and `OrganizationalUnitPath` shows exactly why that grouping was chosen. See the [synthetic sample report](sample-output/AD-ATLAS.csv) for the complete schema.
+The CSV stays deliberately small. `Department` is the useful grouping, `ComputerName` identifies the object, and `OrganizationalUnitPath` shows exactly why that grouping was chosen. A report looks like this:
+
+```csv
+"Department","ComputerName","OrganizationalUnitPath"
+"Finance","FIN-LAP-001","Laptops / Finance / Devices"
+"Human Resources","HR-WS-002","Workstations / Human Resources / Devices"
+"Research, Development","LAB-WS-009","Workstations / Research, Development / Devices"
+"[Unclassified]","KIOSK-004",""
+```
 
 ## How Department Mapping Works
 
