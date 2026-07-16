@@ -21,7 +21,7 @@ Each successful run creates one CSV with the computer name, the selected departm
 
 ## Quick Start
 
-You need Windows PowerShell 5.1 or newer, domain connectivity, the RSAT Active Directory module, and permission to read computer objects. Domain Admin is not required; the script uses your current Windows identity and never asks for credentials.
+You need a domain-connected Windows host with Windows PowerShell 5.1, the RSAT Active Directory module, and permission to read computer objects. Domain Admin is not required; the script uses your current Windows identity and never asks for credentials.
 
 ```powershell
 git clone https://github.com/delriscotechnologies/ad-atlas.git
