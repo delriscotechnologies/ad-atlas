@@ -288,7 +288,7 @@ function Resolve-InventoryOutputPath {
     }
 
     if (-not (Test-Path -LiteralPath $parentDirectory -PathType Container)) {
-        $null = New-Item -ItemType Directory -Path $parentDirectory -Force
+        $null = New-Item -ItemType Directory -Path $parentDirectory -Force -ErrorAction Stop
     }
 
     return $resolvedPath
@@ -311,13 +311,30 @@ function Export-DepartmentInventoryCsv {
         }
     )
 
-    if ($protectedRows.Count -eq 0) {
-        '"Department","ComputerName","OrganizationalUnitPath"' |
-            Set-Content -LiteralPath $Path -Encoding UTF8
-        return
-    }
+    $parentDirectory = Split-Path -Path $Path -Parent
+    $fileName = [System.IO.Path]::GetFileName($Path)
+    $temporaryName = '.{0}.{1}.tmp' -f $fileName, ([guid]::NewGuid().ToString('N'))
+    $temporaryPath = Join-Path $parentDirectory $temporaryName
 
-    $protectedRows | Export-Csv -LiteralPath $Path -NoTypeInformation -Encoding UTF8
+    try {
+        if ($protectedRows.Count -eq 0) {
+            '"Department","ComputerName","OrganizationalUnitPath"' |
+                Set-Content -LiteralPath $temporaryPath -Encoding UTF8 -ErrorAction Stop
+        }
+        else {
+            $protectedRows |
+                Export-Csv -LiteralPath $temporaryPath -NoTypeInformation -Encoding UTF8 -ErrorAction Stop
+        }
+
+        # The two-argument Move operation fails if another process created the
+        # destination after Resolve-InventoryOutputPath validated it.
+        [System.IO.File]::Move($temporaryPath, $Path)
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Import-ActiveDirectoryModule {

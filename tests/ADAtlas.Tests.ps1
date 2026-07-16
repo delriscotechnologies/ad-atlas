@@ -89,6 +89,36 @@ Describe 'AD ATLAS' {
                 Should-Be '"Department","ComputerName","OrganizationalUnitPath"'
         }
 
+        It 'does not overwrite a file created after path validation' {
+            $outputPath = Join-Path $TestDrive 'race\inventory.csv'
+            $resolvedPath = Resolve-InventoryOutputPath -RequestedPath $outputPath
+            Set-Content -LiteralPath $resolvedPath -Value 'SENTINEL'
+
+            $rows = @(
+                [pscustomobject]@{
+                    Department = 'Finance'
+                    ComputerName = 'FIN-LAP-001'
+                    OrganizationalUnitPath = 'Finance / Devices'
+                }
+            )
+
+            { Export-DepartmentInventoryCsv -Rows $rows -Path $resolvedPath } |
+                Should-Throw
+            (Get-Content -LiteralPath $resolvedPath -Raw).Trim() | Should-Be 'SENTINEL'
+            @(Get-ChildItem -LiteralPath (Split-Path $resolvedPath -Parent) -File).Count |
+                Should-Be 1
+        }
+
+        It 'throws instead of reporting success when the CSV cannot be written' {
+            $blockedParent = Join-Path $TestDrive 'not-a-directory'
+            Set-Content -LiteralPath $blockedParent -Value 'BLOCKER'
+            $outputPath = Join-Path $blockedParent 'inventory.csv'
+
+            { Export-DepartmentInventoryCsv -Rows @() -Path $outputPath } |
+                Should-Throw
+            Test-Path -LiteralPath $outputPath | Should-BeFalse
+        }
+
         It 'rejects non-filesystem output providers' {
             { Resolve-InventoryOutputPath -RequestedPath 'Variable:\AD-ATLAS.csv' } |
                 Should-Throw -ExceptionMessage '*FileSystem provider*'
