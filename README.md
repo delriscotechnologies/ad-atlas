@@ -152,4 +152,3 @@ Unblock-File .\Get-AD-ATLAS.ps1
 ```
 
 Security reports should follow [SECURITY.md](SECURITY.md).
-

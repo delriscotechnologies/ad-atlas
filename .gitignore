@@ -1,0 +1,26 @@
+# Generated Active Directory reports
+output/
+test-output/
+AD-ATLAS-Reports/
+AD-ATLAS_*.csv
+
+# PowerShell and test artifacts
+TestResults/
+*.clixml
+*.log
+
+# Local configuration and secrets
+.env
+*.pfx
+*.p12
+*.pem
+*.key
+*.cer
+*.crt
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
