@@ -21,8 +21,9 @@ The generated CSV file contains internal computer names and OU structure. Store 
 The script:
 
 - uses the current Windows identity
-- calls `Get-ADComputer` only
-- reads only computer names and Distinguished Names
+- uses `Get-ADComputer` as its only Active Directory query
+- retains and exports only computer names and Distinguished Names
 - does not modify Active Directory
 - does not connect to endpoint hosts
 - does not accept or store credentials
+- never contacts a real domain from public CI; the real-domain integration test requires explicit opt-in

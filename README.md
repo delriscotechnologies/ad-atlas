@@ -13,9 +13,9 @@
 
 ---
 
-AD ATLAS is one PowerShell script that inventories the computer objects in the current Active Directory domain and groups them by the most relevant department OU.
+AD ATLAS is one PowerShell script that inventories the computer objects in the current Active Directory domain and selects a department candidate using explicit OU rules.
 
-Each run creates one CSV with the computer name, the selected department, and the full OU path behind that decision. It does not build a database, contact endpoint hosts, or collect unrelated system metadata.
+Each successful run creates one CSV with the computer name, the selected department label, and the OU hierarchy used for review. It does not build a database, contact endpoint hosts, or write unrelated system metadata to the report.
 
 > Use AD ATLAS only in Active Directory environments you own or are explicitly authorized to inventory. A real report contains internal computer names and OU structure; never commit one to a public repository.
 
@@ -37,7 +37,7 @@ Documents\AD-ATLAS-Reports\
 
 ## What You Get
 
-When the inventory finishes, the terminal gives you a quick sense of the domain: how many computers were found, how many department groups were identified, how many objects still need classification, and where the report was saved.
+When the inventory finishes, the terminal shows how many computers were found, how many distinct classified department labels were selected, how many objects remain unclassified, and where the report was saved. `[Unclassified]` rows remain in the CSV but are not counted as departments.
 
 ```text
     _  _____ _        _    ____
@@ -55,7 +55,7 @@ Del Risco Technologies  |  v1.3.0
  CSV            : C:\Users\user\Documents\AD-ATLAS-Reports\AD-ATLAS_20260715_193500_a1b2c3.csv
 ```
 
-The CSV stays deliberately small. `Department` is the useful grouping, `ComputerName` identifies the object, and `OrganizationalUnitPath` shows exactly why that grouping was chosen. A report looks like this:
+The CSV stays deliberately small. `Department` contains the selected grouping, `ComputerName` identifies the object, and `OrganizationalUnitPath` preserves the OU hierarchy used to review that choice. A report looks like this:
 
 ```csv
 "Department","ComputerName","OrganizationalUnitPath"
@@ -73,7 +73,7 @@ Consider this Distinguished Name:
 CN=FIN-LAP-001,OU=Laptops,OU=Finance,OU=Devices,DC=company,DC=com
 ```
 
-`Laptops` and `Devices` are technical containers, so the default `ClosestRelevant` strategy skips them and produces:
+AD ATLAS applies a transparent heuristic rather than determining organizational meaning. Every OU not present in `IgnoreOUs` becomes a candidate, and the configured strategy selects the closest or highest candidate. With the default rules, `Laptops` and `Devices` are skipped and the example produces:
 
 ```text
 Department:             Finance
@@ -111,12 +111,19 @@ If the query exceeds `-MaxComputers`, AD ATLAS stops without creating a partial 
 
 ## Safety and Privacy
 
-- Uses only the read-only `Get-ADComputer` command.
-- Reads and retains only `Name` and `DistinguishedName`.
+- Uses `Get-ADComputer` as its only Active Directory query.
+- Retains and exports only `Name` and `DistinguishedName` from the returned objects.
 - Does not modify Active Directory, connect to endpoints, run remote commands, or handle credentials.
-- Neutralizes spreadsheet-formula prefixes before writing CSV cells.
+- Mitigates common spreadsheet-formula prefixes before writing CSV cells.
 - Accepts only filesystem output paths and refuses accidental overwrites.
 - Keeps unclassified computers visible instead of silently dropping them.
+
+Public CI uses synthetic directory objects and never contacts a real domain. The opt-in integration test is excluded from CI and must be enabled explicitly in an authorized Active Directory lab; its temporary CSV is removed after validation.
+
+```powershell
+$env:AD_ATLAS_RUN_INTEGRATION = '1'
+Invoke-Pester -Path .\tests\ADAtlas.Integration.Tests.ps1
+```
 
 Store real reports outside public repositories, restrict access to them, and remove them according to your organization's retention policy. See [SECURITY.md](SECURITY.md) for reporting and handling guidance.
 

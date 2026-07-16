@@ -38,6 +38,27 @@ Describe 'AD ATLAS' {
             $hex.DepartmentOU | Should-Be 'Research, Development'
         }
 
+        It 'preserves escaped leading and trailing spaces in OU values' {
+            $leading = Resolve-DepartmentOU `
+                -DistinguishedName 'CN=HOST-01,OU=\ Finance,OU=Devices,DC=company,DC=com' `
+                -IgnoreOUs @('Devices') `
+                -Strategy ClosestRelevant
+            $trailing = Resolve-DepartmentOU `
+                -DistinguishedName 'CN=HOST-02,OU=Finance\ ,OU=Devices,DC=company,DC=com' `
+                -IgnoreOUs @('Devices') `
+                -Strategy ClosestRelevant
+            $hexSpaces = Resolve-DepartmentOU `
+                -DistinguishedName 'CN=HOST-03,OU=\20Finance\20,OU=Devices,DC=company,DC=com' `
+                -IgnoreOUs @('Devices') `
+                -Strategy ClosestRelevant
+
+            $leading.DepartmentOU | Should-Be ' Finance'
+            $leading.OUPath | Should-Be ' Finance / Devices'
+            $trailing.DepartmentOU | Should-Be 'Finance '
+            $trailing.OUPath | Should-Be 'Finance  / Devices'
+            $hexSpaces.DepartmentOU | Should-Be ' Finance '
+        }
+
         It 'marks computers outside an OU as unclassified' {
             $row = ConvertTo-DepartmentInventoryRow `
                 -Computer ([pscustomobject]@{
@@ -66,6 +87,11 @@ Describe 'AD ATLAS' {
                     Department = 'Human Resources'
                     ComputerName = 'HR-WS-002'
                     OrganizationalUnitPath = 'Workstations / Human Resources / Devices'
+                },
+                [pscustomobject]@{
+                    Department = '[Unclassified]'
+                    ComputerName = 'KIOSK-004'
+                    OrganizationalUnitPath = ''
                 }
             )
 
@@ -73,12 +99,14 @@ Describe 'AD ATLAS' {
 
             @(Get-ChildItem -LiteralPath (Split-Path $resolvedPath -Parent) -File).Count | Should-Be 1
             $csv = @(Import-Csv -LiteralPath $resolvedPath)
-            $csv.Count | Should-Be 2
+            $csv.Count | Should-Be 3
             @($csv[0].PSObject.Properties.Name) | Should-BeCollection @(
                 'Department',
                 'ComputerName',
                 'OrganizationalUnitPath'
             )
+            $csv[2].Department | Should-Be '[Unclassified]'
+            $csv[2].ComputerName | Should-Be 'KIOSK-004'
         }
 
         It 'keeps a useful schema when the domain has no computers' {
@@ -124,10 +152,28 @@ Describe 'AD ATLAS' {
                 Should-Throw -ExceptionMessage '*FileSystem provider*'
         }
 
-        It 'neutralizes spreadsheet formula prefixes' {
-            foreach ($value in @('=1+1', '+1+1', '-1+1', '@SUM(A1:A2)', "`t=1+1", "`r=1+1", "`n=1+1")) {
+        It 'mitigates common spreadsheet formula prefixes' {
+            foreach ($value in @(
+                '=1+1', '+1+1', '-1+1', '@SUM(A1:A2)',
+                "`t=1+1", "`r=1+1", "`n=1+1", '  =1+1',
+                '＝1+1', '＋1+1', '－1+1', '＠SUM(A1:A2)'
+            )) {
                 Protect-CsvCell -Value $value | Should-Be "'$value"
             }
+
+            Protect-CsvCell -Value 'Finance' | Should-Be 'Finance'
+            Protect-CsvCell -Value '  Finance' | Should-Be '  Finance'
+        }
+
+        It 'does not count unclassified rows as departments' {
+            $rows = @(
+                [pscustomobject]@{ Department = 'Finance' },
+                [pscustomobject]@{ Department = 'Finance' },
+                [pscustomobject]@{ Department = 'Human Resources' },
+                [pscustomobject]@{ Department = '[Unclassified]' }
+            )
+
+            Get-ClassifiedDepartmentCount -Rows $rows | Should-Be 2
         }
 
         It 'does not collect removed endpoint metadata' {

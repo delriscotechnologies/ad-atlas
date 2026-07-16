@@ -5,11 +5,11 @@
 Builds AD ATLAS: a CSV map of Active Directory computers and department OUs.
 
 .DESCRIPTION
-Reads computer names and Distinguished Names from Active Directory, selects the
-closest non-technical OU as the department, and writes one CSV file.
+Retrieves Active Directory computer objects, retains their names and Distinguished
+Names, selects a department candidate using explicit OU rules, and writes one CSV file.
 
-The script is read-only. It calls Get-ADComputer and does not connect to endpoints
-or modify Active Directory.
+The Active Directory operation is read-only. The script calls Get-ADComputer and
+does not connect to endpoints or modify Active Directory.
 
 .PARAMETER AllComputers
 Confirms that the query should include all computer objects in the current domain.
@@ -139,7 +139,7 @@ function ConvertFrom-DistinguishedNameValue {
         $index++
     }
 
-    return $decoded.ToString().Trim()
+    return $decoded.ToString()
 }
 
 function Resolve-DepartmentOU {
@@ -240,11 +240,24 @@ function Protect-CsvCell {
     }
 
     $text = [string]$Value
-    if ($text -match '^[=+\-@\t\r\n]') {
+    $formulaAfterOptionalWhitespace = '^[\x00-\x20]*[=+\-@\uFF1D\uFF0B\uFF0D\uFF20]'
+    if ($text -match '^[\t\r\n]' -or $text -match $formulaAfterOptionalWhitespace) {
         return "'$text"
     }
 
     return $text
+}
+
+function Get-ClassifiedDepartmentCount {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Rows)
+
+    return @(
+        $Rows |
+            Where-Object Department -ne '[Unclassified]' |
+            ForEach-Object { [string]$_.Department } |
+            Sort-Object -Unique
+    ).Count
 }
 
 function Resolve-InventoryOutputPath {
@@ -452,7 +465,7 @@ function Invoke-AdComputerDepartmentInventory {
     $resolvedOutputPath = Resolve-InventoryOutputPath -RequestedPath $OutputPath
     Export-DepartmentInventoryCsv -Rows $rows -Path $resolvedOutputPath
 
-    $departmentCount = @($rows.Department | Sort-Object -Unique).Count
+    $departmentCount = Get-ClassifiedDepartmentCount -Rows $rows
     $unclassifiedCount = @($rows | Where-Object Department -eq '[Unclassified]').Count
     Show-InventorySummary `
         -ComputerCount $rows.Count `
