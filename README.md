@@ -112,14 +112,6 @@ If the query exceeds `-MaxComputers`, AD ATLAS stops without creating a partial 
 
 Store real reports outside public repositories, restrict access to them, and remove them according to your organization's retention policy. See [SECURITY.md](SECURITY.md) for reporting and handling guidance.
 
-## Development
-
-The Pester suite covers DN parsing, OU selection, CSV structure, spreadsheet-formula hardening, and the computer-count safety limit. CI runs it in both Windows PowerShell and PowerShell 7, followed by PSScriptAnalyzer.
-
-```powershell
-Invoke-Pester -Path .\tests
-```
-
 ## License
 
 AD ATLAS is available under the [MIT License](LICENSE).
