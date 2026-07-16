@@ -156,7 +156,10 @@ Describe 'AD ATLAS' {
             foreach ($value in @(
                 '=1+1', '+1+1', '-1+1', '@SUM(A1:A2)',
                 "`t=1+1", "`r=1+1", "`n=1+1", '  =1+1',
-                '＝1+1', '＋1+1', '－1+1', '＠SUM(A1:A2)'
+                (([char]0xFF1D).ToString() + '1+1'),
+                (([char]0xFF0B).ToString() + '1+1'),
+                (([char]0xFF0D).ToString() + '1+1'),
+                (([char]0xFF20).ToString() + 'SUM(A1:A2)')
             )) {
                 Protect-CsvCell -Value $value | Should-Be "'$value"
             }
