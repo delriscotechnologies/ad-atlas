@@ -98,6 +98,8 @@ Describe 'AD ATLAS' {
             Export-DepartmentInventoryCsv -Rows $rows -Path $resolvedPath
 
             @(Get-ChildItem -LiteralPath (Split-Path $resolvedPath -Parent) -File).Count | Should-Be 1
+            @(Get-ChildItem -LiteralPath (Split-Path $resolvedPath -Parent) -Filter '.AD-ATLAS-*.tmp' -File).Count |
+                Should-Be 0
             $csv = @(Import-Csv -LiteralPath $resolvedPath)
             $csv.Count | Should-Be 3
             @($csv[0].PSObject.Properties.Name) | Should-BeCollection @(
@@ -152,6 +154,11 @@ Describe 'AD ATLAS' {
                 Should-Throw -ExceptionMessage '*FileSystem provider*'
         }
 
+        It 'rejects direct UNC output unless explicitly allowed' {
+            { Resolve-InventoryOutputPath -RequestedPath '\\server\share\AD-ATLAS.csv' } |
+                Should-Throw -ExceptionMessage '*-AllowNetworkOutput*'
+        }
+
         It 'mitigates common spreadsheet formula prefixes' {
             foreach ($value in @(
                 '=1+1', '+1+1', '-1+1', '@SUM(A1:A2)',
@@ -178,35 +185,49 @@ Describe 'AD ATLAS' {
 
             Get-ClassifiedDepartmentCount -Rows $rows | Should-Be 2
         }
-
-        It 'does not collect removed endpoint metadata' {
-            $source = Get-Content -LiteralPath $scriptPath -Raw
-
-            $source.Contains('DNSHostName') | Should-BeFalse
-            $source.Contains('OperatingSystem') | Should-BeFalse
-            $source.Contains('LastLogonDate') | Should-BeFalse
-            $source.Contains('DisabledComputerAccount') | Should-BeFalse
-            $source.Contains('SignalSummary') | Should-BeFalse
-        }
     }
 
-    Context 'safety limit' {
+    Context 'safety limit and AD data minimization' {
         BeforeAll {
+            $script:lastADFilter = $null
+            $script:lastADResultSetSize = $null
+
             function Get-ADComputer {
                 [CmdletBinding()]
-                param([string]$Filter)
+                param(
+                    [string]$Filter,
+                    [int]$ResultSetSize
+                )
+
+                $script:lastADFilter = $Filter
+                $script:lastADResultSetSize = $ResultSetSize
 
                 1..3 | ForEach-Object {
                     [pscustomobject]@{
                         Name = "HOST-$_"
                         DistinguishedName = "CN=HOST-$_,OU=Finance,DC=company,DC=com"
+                        DNSHostName = "host-$_.company.com"
+                        OperatingSystem = 'Windows'
                     }
                 }
             }
         }
 
+        It 'requests one extra result and retains only required AD properties' {
+            $computers = @(Get-DomainComputerInventory -MaxComputers 3)
+
+            $script:lastADFilter | Should-Be '*'
+            $script:lastADResultSetSize | Should-Be 4
+            $computers.Count | Should-Be 3
+            @($computers[0].PSObject.Properties.Name) | Should-BeCollection @(
+                'Name',
+                'DistinguishedName'
+            )
+        }
+
         It 'stops before writing output when MaxComputers is exceeded' {
             { Get-DomainComputerInventory -MaxComputers 2 } | Should-Throw
+            $script:lastADResultSetSize | Should-Be 3
         }
 
         It 'explains how to increase the limit' {
