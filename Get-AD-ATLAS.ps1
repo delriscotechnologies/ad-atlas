@@ -13,10 +13,12 @@ does not connect to endpoints or modify Active Directory.
 
 .PARAMETER AllComputers
 Confirms that the query should include all computer objects in the current domain.
+This is an operator confirmation guardrail, not an authorization boundary.
 
 .PARAMETER MaxComputers
-Safety limit for the number of computer objects. The default is 10,000. If the
-domain is larger, rerun the script with a deliberate higher value.
+Safety limit for the number of computer objects. The default is 10,000. The Active
+Directory query requests at most this value plus one object so the script can detect
+and stop when the limit is exceeded.
 
 .PARAMETER DepartmentStrategy
 ClosestRelevant selects the first non-technical OU above the computer.
@@ -29,6 +31,10 @@ OU names that represent technical containers rather than departments.
 Destination CSV path. By default, the script creates a timestamped CSV under
 Documents\AD-ATLAS-Reports.
 
+.PARAMETER AllowNetworkOutput
+Explicitly permits a direct UNC output path. Direct UNC paths are rejected by default.
+Mapped or mounted filesystem drives remain available through OutputPath.
+
 .EXAMPLE
 .\Get-AD-ATLAS.ps1 -AllComputers
 
@@ -37,6 +43,9 @@ Documents\AD-ATLAS-Reports.
 
 .EXAMPLE
 .\Get-AD-ATLAS.ps1 -AllComputers -IgnoreOUs 'Devices','Computers','Workstations','Laptops','Servers'
+
+.EXAMPLE
+.\Get-AD-ATLAS.ps1 -AllComputers -OutputPath '\\fileserver\reports\AD-ATLAS.csv' -AllowNetworkOutput
 #>
 
 [CmdletBinding()]
@@ -61,12 +70,15 @@ param(
 
     [Parameter()]
     [AllowEmptyString()]
-    [string]$OutputPath
+    [string]$OutputPath,
+
+    [Parameter()]
+    [switch]$AllowNetworkOutput
 )
 
 Set-StrictMode -Version Latest
 
-$script:ToolVersion = '1.3.0'
+$script:ToolVersion = '1.3.1'
 $script:VendorName = 'Del Risco Technologies'
 
 function Split-DistinguishedName {
@@ -225,9 +237,9 @@ function ConvertTo-DepartmentInventoryRow {
     }
 
     return [pscustomobject][ordered]@{
-        Department                 = $department
-        ComputerName               = $computerName
-        OrganizationalUnitPath     = [string]$ouInfo.OUPath
+        Department             = $department
+        ComputerName           = $computerName
+        OrganizationalUnitPath = [string]$ouInfo.OUPath
     }
 }
 
@@ -262,7 +274,10 @@ function Get-ClassifiedDepartmentCount {
 
 function Resolve-InventoryOutputPath {
     [CmdletBinding()]
-    param([AllowEmptyString()][string]$RequestedPath)
+    param(
+        [AllowEmptyString()][string]$RequestedPath,
+        [switch]$AllowNetworkOutput
+    )
 
     if ([string]::IsNullOrWhiteSpace($RequestedPath)) {
         $reportRoot = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'AD-ATLAS-Reports'
@@ -270,6 +285,11 @@ function Resolve-InventoryOutputPath {
             (Get-Date).ToString('yyyyMMdd_HHmmss'), `
             ([guid]::NewGuid().ToString('N').Substring(0, 6))
         $RequestedPath = Join-Path $reportRoot $uniqueName
+    }
+
+    $uncPattern = '^(?:Microsoft\.PowerShell\.Core\\FileSystem::)?\\\\'
+    if (-not $AllowNetworkOutput.IsPresent -and $RequestedPath -match $uncPattern) {
+        throw "Direct UNC output requires -AllowNetworkOutput: '$RequestedPath'."
     }
 
     $provider = $null
@@ -281,6 +301,10 @@ function Resolve-InventoryOutputPath {
     )
     if ($provider.Name -ne 'FileSystem') {
         throw "OutputPath must use the FileSystem provider: '$RequestedPath'."
+    }
+
+    if (-not $AllowNetworkOutput.IsPresent -and $resolvedPath.StartsWith('\\')) {
+        throw "Direct UNC output requires -AllowNetworkOutput: '$RequestedPath'."
     }
 
     if ([System.IO.Path]::GetExtension($resolvedPath) -ine '.csv') {
@@ -325,8 +349,7 @@ function Export-DepartmentInventoryCsv {
     )
 
     $parentDirectory = Split-Path -Path $Path -Parent
-    $fileName = [System.IO.Path]::GetFileName($Path)
-    $temporaryName = '.{0}.{1}.tmp' -f $fileName, ([guid]::NewGuid().ToString('N'))
+    $temporaryName = '.AD-ATLAS-{0}.tmp' -f ([guid]::NewGuid().ToString('N'))
     $temporaryPath = Join-Path $parentDirectory $temporaryName
 
     try {
@@ -344,6 +367,8 @@ function Export-DepartmentInventoryCsv {
         [System.IO.File]::Move($temporaryPath, $Path)
     }
     finally {
+        # This removes the temporary report after normal failures. A process kill or
+        # system crash can still leave the ignored .AD-ATLAS-*.tmp file behind.
         if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
             Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
         }
@@ -365,9 +390,10 @@ function Get-DomainComputerInventory {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][int]$MaxComputers)
 
+    $resultLimit = $MaxComputers + 1
     $computers = @(
-        Get-ADComputer -Filter '*' -ErrorAction Stop |
-            Select-Object -First ($MaxComputers + 1) -Property Name, DistinguishedName
+        Get-ADComputer -Filter '*' -ResultSetSize $resultLimit -ErrorAction Stop |
+            Select-Object -First $resultLimit -Property Name, DistinguishedName
     )
     if ($computers.Count -gt $MaxComputers) {
         throw @"
@@ -446,7 +472,8 @@ function Invoke-AdComputerDepartmentInventory {
         [Parameter(Mandatory = $true)][int]$MaxComputers,
         [Parameter(Mandatory = $true)][ValidateSet('ClosestRelevant', 'TopRelevant')][string]$Strategy,
         [AllowEmptyCollection()][string[]]$IgnoreOUs,
-        [AllowEmptyString()][string]$OutputPath
+        [AllowEmptyString()][string]$OutputPath,
+        [switch]$AllowNetworkOutput
     )
 
     Import-ActiveDirectoryModule
@@ -462,7 +489,9 @@ function Invoke-AdComputerDepartmentInventory {
     )
     $rows = @($rows | Sort-Object Department, ComputerName)
 
-    $resolvedOutputPath = Resolve-InventoryOutputPath -RequestedPath $OutputPath
+    $resolvedOutputPath = Resolve-InventoryOutputPath `
+        -RequestedPath $OutputPath `
+        -AllowNetworkOutput:$AllowNetworkOutput
     Export-DepartmentInventoryCsv -Rows $rows -Path $resolvedOutputPath
 
     $departmentCount = Get-ClassifiedDepartmentCount -Rows $rows
@@ -483,5 +512,6 @@ if ($MyInvocation.InvocationName -ne '.') {
         -MaxComputers $MaxComputers `
         -Strategy $DepartmentStrategy `
         -IgnoreOUs $IgnoreOUs `
-        -OutputPath $OutputPath
+        -OutputPath $OutputPath `
+        -AllowNetworkOutput:$AllowNetworkOutput
 }
