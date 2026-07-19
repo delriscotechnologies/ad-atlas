@@ -12,17 +12,25 @@ jobs:
   windows-powershell:
     name: Windows PowerShell 5.1
     runs-on: windows-latest
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
 
       - name: Install pinned PowerShell analysis tools
         shell: powershell
         run: |
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module Pester -RequiredVersion 6.0.0 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery
-          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery
+          $gallery = Get-PSRepository -Name PSGallery -ErrorAction Stop
+          $galleryUri = [uri]$gallery.SourceLocation
+          if ($galleryUri.Scheme -ne 'https' -or $galleryUri.Host -ne 'www.powershellgallery.com') {
+            throw "Unexpected PSGallery source: $($gallery.SourceLocation)"
+          }
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop
+          Install-Module Pester -RequiredVersion 6.0.0 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop
 
       - name: Run Pester tests
         shell: powershell
@@ -47,17 +55,25 @@ jobs:
   powershell:
     name: PowerShell 7
     runs-on: windows-latest
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
 
       - name: Install pinned PowerShell analysis tools
         shell: pwsh
         run: |
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module Pester -RequiredVersion 6.0.0 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery
-          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery
+          $gallery = Get-PSRepository -Name PSGallery -ErrorAction Stop
+          $galleryUri = [uri]$gallery.SourceLocation
+          if ($galleryUri.Scheme -ne 'https' -or $galleryUri.Host -ne 'www.powershellgallery.com') {
+            throw "Unexpected PSGallery source: $($gallery.SourceLocation)"
+          }
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop
+          Install-Module Pester -RequiredVersion 6.0.0 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop
 
       - name: Run Pester tests
         shell: pwsh
