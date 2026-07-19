@@ -46,7 +46,7 @@ When the inventory finishes, the terminal shows how many computers were found, h
  / ___ \| | | |___ / ___ \ ___) |
 /_/   \_\_| |_____/_/   \_\____/
 ACTIVE DIRECTORY OU MAP
-Del Risco Technologies  |  v1.3.0
+Del Risco Technologies  |  v1.3.1
 ---------------------------------
  Computers      : 342
  Departments    : 12
@@ -101,21 +101,33 @@ Objects that cannot be associated with a department remain visible as `[Unclassi
 
 | Option | Purpose |
 | --- | --- |
-| `-AllComputers` | Explicitly confirms the domain-wide inventory |
+| `-AllComputers` | Explicitly confirms the domain-wide inventory; it is an operator guardrail, not an authorization boundary |
 | `-IgnoreOUs` | Defines technical containers that should not become departments |
 | `-DepartmentStrategy` | Chooses the closest or highest relevant OU |
-| `-MaxComputers` | Raises or lowers the default 10,000-object safety limit |
+| `-MaxComputers` | Limits the AD result request to the configured value plus one and stops before creating an oversized report |
 | `-OutputPath` | Writes the CSV to a specific local or mounted filesystem path |
+| `-AllowNetworkOutput` | Explicitly permits a direct UNC output path, which is rejected by default |
 
-If the query exceeds `-MaxComputers`, AD ATLAS stops without creating a partial report. It also refuses to overwrite an existing output file.
+If the domain contains more objects than `-MaxComputers`, AD ATLAS stops without creating a partial report. It also refuses to overwrite an existing output file.
+
+A direct UNC path requires explicit confirmation:
+
+```powershell
+.\Get-AD-ATLAS.ps1 `
+  -AllComputers `
+  -OutputPath '\\fileserver\reports\AD-ATLAS.csv' `
+  -AllowNetworkOutput
+```
 
 ## Safety and Privacy
 
-- Uses `Get-ADComputer` as its only Active Directory query.
-- Retains and exports only `Name` and `DistinguishedName` from the returned objects.
+- Uses `Get-ADComputer` as its only Active Directory query and requests no more than `MaxComputers + 1` results.
+- Selects only `Name` and `DistinguishedName` from returned AD objects.
+- Exports only the derived `Department`, `ComputerName`, and `OrganizationalUnitPath` fields.
 - Does not modify Active Directory, connect to endpoints, run remote commands, or handle credentials.
 - Mitigates common spreadsheet-formula prefixes before writing CSV cells.
-- Accepts only filesystem output paths and refuses accidental overwrites.
+- Accepts only filesystem output paths, blocks direct UNC paths by default, and refuses accidental overwrites.
+- Writes through a same-directory temporary file so the final CSV appears atomically. Normal failures remove it; an abrupt process or system termination can leave an ignored `.AD-ATLAS-*.tmp` file that should be deleted securely.
 - Keeps unclassified computers visible instead of silently dropping them.
 
 Public CI uses synthetic directory objects and never contacts a real domain. The opt-in integration test is excluded from CI and must be enabled explicitly in an authorized Active Directory lab; its temporary CSV is removed after validation.
@@ -125,7 +137,7 @@ $env:AD_ATLAS_RUN_INTEGRATION = '1'
 Invoke-Pester -Path .\tests\ADAtlas.Integration.Tests.ps1
 ```
 
-Store real reports outside public repositories, restrict access to them, and remove them according to your organization's retention policy.
+Store real reports and any residual temporary files outside public repositories, restrict access to them, and remove them according to your organization's retention policy.
 
 See [SECURITY.md](SECURITY.md) for reporting and handling guidance.
 
