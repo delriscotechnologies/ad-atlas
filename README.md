@@ -130,11 +130,22 @@ A direct UNC path requires explicit confirmation:
 - Writes through a same-directory temporary file so the final CSV appears atomically. Normal failures remove it; an abrupt process or system termination can leave an ignored `.AD-ATLAS-*.tmp` file that should be deleted securely.
 - Keeps unclassified computers visible instead of silently dropping them.
 
-Public CI parses the script and runs PSScriptAnalyzer under Windows PowerShell 5.1 and PowerShell 7. It does not contact a domain.
+Public CI runs synthetic Pester tests, parses the script, and runs PSScriptAnalyzer under Windows PowerShell 5.1 and PowerShell 7. The tests use mocked directory objects and never contact a domain.
 
 Store real reports and any residual temporary files outside public repositories, restrict access to them, and remove them according to your organization's retention policy.
 
 See [SECURITY.md](SECURITY.md) for reporting and handling guidance.
+
+## Development
+
+The production tool remains at the repository root so users can clone and run one clearly named script. Synthetic regression tests live under `tests/`; a separate `src/` directory is intentionally not used because it would add runtime indirection without reducing the size or complexity of this single-script project.
+
+```powershell
+Invoke-Pester -Path .\tests
+Invoke-ScriptAnalyzer -Path .\Get-AD-ATLAS.ps1 -Severity Warning,Error
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes.
 
 ## License
 
