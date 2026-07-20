@@ -34,4 +34,4 @@ The script:
 - Does not accept or store credentials.
 - Rejects direct UNC output paths unless `-AllowNetworkOutput` is provided explicitly.
 - Treats `-AllComputers` as operator confirmation rather than an authorization control.
-- Never contacts a real domain from public CI; the real-domain integration test requires explicit opt-in.
+- Is parsed and analyzed in public CI without contacting a domain.
