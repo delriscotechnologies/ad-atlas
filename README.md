@@ -130,12 +130,7 @@ A direct UNC path requires explicit confirmation:
 - Writes through a same-directory temporary file so the final CSV appears atomically. Normal failures remove it; an abrupt process or system termination can leave an ignored `.AD-ATLAS-*.tmp` file that should be deleted securely.
 - Keeps unclassified computers visible instead of silently dropping them.
 
-Public CI uses synthetic directory objects and never contacts a real domain. The opt-in integration test is excluded from CI and must be enabled explicitly in an authorized Active Directory lab; its temporary CSV is removed after validation.
-
-```powershell
-$env:AD_ATLAS_RUN_INTEGRATION = '1'
-Invoke-Pester -Path .\tests\ADAtlas.Integration.Tests.ps1
-```
+Public CI parses the script and runs PSScriptAnalyzer under Windows PowerShell 5.1 and PowerShell 7. It does not contact a domain.
 
 Store real reports and any residual temporary files outside public repositories, restrict access to them, and remove them according to your organization's retention policy.
 
