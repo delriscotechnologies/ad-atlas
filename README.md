@@ -145,8 +145,6 @@ Invoke-Pester -Path .\tests
 Invoke-ScriptAnalyzer -Path .\Get-AD-ATLAS.ps1 -Severity Warning,Error
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes.
-
 ## License
 
 AD ATLAS is available under the [MIT License](LICENSE).
