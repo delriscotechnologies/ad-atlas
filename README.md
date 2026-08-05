@@ -132,6 +132,8 @@ A direct UNC path requires explicit confirmation:
 
 Public CI runs synthetic Pester tests, parses the script, and runs PSScriptAnalyzer under Windows PowerShell 5.1 and PowerShell 7. The tests use mocked directory objects and never contact a domain.
 
+These synthetic tests validate the script logic but do not verify RSAT installation, domain connectivity, permissions, or behavior against a live Active Directory environment.
+
 Store real reports and any residual temporary files outside public repositories, restrict access to them, and remove them according to your organization's retention policy.
 
 See [SECURITY.md](SECURITY.md) for reporting and handling guidance.
