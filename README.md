@@ -115,19 +115,16 @@ A direct UNC path requires explicit confirmation:
 ## Safety and Privacy
 
 - Uses `Get-ADComputer` as its only Active Directory query and requests no more than `MaxComputers + 1` results.
-- Selects only `Name` and `DistinguishedName` from returned AD objects.
+- Uses only `Name` and `DistinguishedName` from the returned AD objects.
 - Exports only the derived `Department`, `ComputerName`, and `OrganizationalUnitPath` fields.
 - Does not modify Active Directory, connect to endpoints, run remote commands, or handle credentials.
 - Mitigates common spreadsheet-formula prefixes before writing CSV cells.
 - Accepts only filesystem output paths, blocks direct UNC paths by default, and refuses accidental overwrites.
-- Writes through a same-directory temporary file so the final CSV appears atomically. Normal failures remove it; an abrupt process or system termination can leave an ignored `.AD-ATLAS-*.tmp` file that should be deleted securely.
 - Keeps unclassified computers visible instead of silently dropping them.
 
-Public CI runs synthetic Pester tests, parses the script, and runs PSScriptAnalyzer under Windows PowerShell 5.1 and PowerShell 7. The tests use mocked directory objects and never contact a domain.
+Before production use, validate RSAT installation, domain connectivity, read permissions, and output handling in your environment.
 
-These synthetic tests validate the script logic but do not verify RSAT installation, domain connectivity, permissions, or behavior against a live Active Directory environment.
-
-Store real reports and any residual temporary files outside public repositories, restrict access to them, and remove them according to your organization's retention policy.
+Store real reports outside public repositories, restrict access to them, and remove them according to your organization's retention policy.
 
 See [SECURITY.md](SECURITY.md) for reporting and handling guidance.
 
