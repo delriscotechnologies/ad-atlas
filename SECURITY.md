@@ -23,13 +23,17 @@ The generated CSV file contains internal computer names and OU structures. Store
 The script:
 
 - Uses the current Windows identity.
-- Uses `Get-ADComputer` as its only Active Directory query.
+- Imports the RSAT Active Directory module from the Windows PowerShell system module directory rather than searching user-controlled module paths.
+- Uses `Get-ADRootDSE` and `Get-ADComputer` as its only Active Directory queries.
+- Anchors that query to the default naming context returned by `Get-ADRootDSE` so the caller's current `AD:` location cannot narrow the inventory silently.
 - Limits the requested AD result set to `MaxComputers + 1` objects.
-- Uses only `Name` and `DistinguishedName` from the returned AD objects.
+- Requests only the additional `CanonicalName` property and uses it with the default `Name` property.
 - Exports only the department label, computer name, and OU hierarchy derived from those values.
-- Writes directly to the requested CSV path and refuses to overwrite an existing file.
+- Writes to a same-directory temporary file, publishes the completed CSV atomically, and refuses to overwrite an existing file.
 - Does not modify Active Directory.
 - Does not connect to endpoint hosts.
 - Does not accept or store credentials.
-- Rejects direct UNC output paths unless `-AllowNetworkOutput` is provided explicitly.
+- Rejects UNC and mapped-network-drive output unless `-AllowNetworkOutput` is provided explicitly.
 - Treats `-AllComputers` as operator confirmation rather than an authorization control.
+
+CSV fields are neutralized before export to reduce spreadsheet-formula injection risk. No CSV neutralization is universal across every spreadsheet and save/reopen workflow; validate the report workflow against the spreadsheet application used in your environment.
