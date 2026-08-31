@@ -1,363 +1,172 @@
+#requires -Version 5.1
+
+[CmdletBinding()]
 param(
     [switch]$AllComputers,
-
-    [ValidateRange(1, 1000000)]
-    [int]$MaxComputers = 10000,
-
+    [ValidateRange(1, 1000000)][int]$MaxComputers = 10000,
     [ValidateSet('ClosestRelevant', 'TopRelevant')]
     [string]$DepartmentStrategy = 'ClosestRelevant',
-
-    [AllowEmptyCollection()]
-    [string[]]$IgnoreOUs = @(
+    [AllowEmptyCollection()][string[]]$IgnoreOUs = @(
         'Devices', 'Computers', 'Workstations', 'Laptops', 'Desktops',
         'Servers', 'Clients', 'Endpoints', 'Managed Devices'
     ),
-
-    [AllowEmptyString()]
-    [string]$OutputPath,
-
+    [AllowEmptyString()][string]$OutputPath,
     [switch]$AllowNetworkOutput
 )
 
 Set-StrictMode -Version Latest
 
-$script:ToolVersion = '1.3.1'
-$script:VendorName = 'Del Risco Technologies'
-
-function Split-DistinguishedName {
-    param([string]$DistinguishedName)
-
-    $parts = [System.Collections.Generic.List[string]]::new()
-    $start = 0
-    $backslashCount = 0
-
-    for ($index = 0; $index -lt $DistinguishedName.Length; $index++) {
-        $character = $DistinguishedName[$index]
-
-        if ($character -eq '\') {
-            $backslashCount++
-            continue
-        }
-
-        if ($character -eq ',' -and ($backslashCount % 2 -eq 0)) {
-            $parts.Add($DistinguishedName.Substring($start, $index - $start))
-            $start = $index + 1
-        }
-
-        $backslashCount = 0
-    }
-
-    $parts.Add($DistinguishedName.Substring($start))
-    return $parts
-}
-
-function ConvertFrom-DistinguishedNameValue {
+function Split-CanonicalName {
     param([string]$Value)
 
-    $decoded = [System.Text.StringBuilder]::new()
-    $index = 0
-
-    while ($index -lt $Value.Length) {
-        $character = $Value[$index]
-
-        if ($character -ne '\' -or $index + 1 -ge $Value.Length) {
-            $null = $decoded.Append($character)
-            $index++
+    $parts = [Collections.Generic.List[string]]::new()
+    $start = $slashes = 0
+    for ($i = 0; $i -lt $Value.Length; $i++) {
+        if ($Value[$i] -eq '\') {
+            $slashes++
             continue
         }
-
-        $bytes = [System.Collections.Generic.List[byte]]::new()
-        $cursor = $index
-
-        while (
-            $cursor + 2 -lt $Value.Length -and
-            $Value[$cursor] -eq '\' -and
-            $Value.Substring($cursor + 1, 2) -match '^[0-9A-Fa-f]{2}$'
-        ) {
-            $bytes.Add([Convert]::ToByte($Value.Substring($cursor + 1, 2), 16))
-            $cursor += 3
+        if ($Value[$i] -eq '/' -and $slashes % 2 -eq 0) {
+            $parts.Add($Value.Substring($start, $i - $start))
+            $start = $i + 1
         }
-
-        if ($bytes.Count -gt 0) {
-            $null = $decoded.Append([System.Text.Encoding]::UTF8.GetString($bytes.ToArray()))
-            $index = $cursor
-            continue
-        }
-
-        $escapedCharacter = $Value[$index + 1]
-        if ($escapedCharacter -in @(',', '+', '"', '\', '<', '>', ';', '=', '#', ' ')) {
-            $null = $decoded.Append($escapedCharacter)
-            $index += 2
-            continue
-        }
-
-        $null = $decoded.Append($character)
-        $index++
+        $slashes = 0
     }
-
-    return $decoded.ToString()
+    $parts.Add($Value.Substring($start))
+    $parts
 }
 
-function Resolve-DepartmentOU {
+function Resolve-Department {
     param(
-        [AllowEmptyString()][string]$DistinguishedName,
-        [AllowEmptyCollection()][string[]]$IgnoreOUs,
+        [AllowEmptyString()][string]$CanonicalName,
+        [Collections.Generic.HashSet[string]]$IgnoredOUs,
         [string]$Strategy
     )
 
-    if ([string]::IsNullOrWhiteSpace($DistinguishedName)) {
-        return [pscustomobject]@{
-            DepartmentOU = ''
-            OUPath       = ''
-        }
+    $parts = @(Split-CanonicalName $CanonicalName)
+    $ous = if ($parts.Count -gt 2) {
+        @($parts[1..($parts.Count - 2)] | ForEach-Object { $_.Replace('\/', '/').Replace('\\', '\') })
     }
-
-    $ous = @(
-        foreach ($part in (Split-DistinguishedName -DistinguishedName $DistinguishedName)) {
-            if ($part -match '^OU=(.*)$') {
-                ConvertFrom-DistinguishedNameValue -Value $matches[1]
-            }
-        }
-    )
-
-    $relevantOUs = @(
-        foreach ($ou in $ous) {
-            if ($ou -notin @($IgnoreOUs)) {
-                $ou
-            }
-        }
-    )
+    else { @() }
+    [array]::Reverse($ous)
 
     $department = ''
-    if ($relevantOUs.Count -gt 0) {
-        if ($Strategy -eq 'TopRelevant') {
-            $department = [string]$relevantOUs[$relevantOUs.Count - 1]
-        }
-        else {
-            $department = [string]$relevantOUs[0]
-        }
+    foreach ($ou in $ous) {
+        if ($IgnoredOUs.Contains($ou)) { continue }
+        $department = $ou
+        if ($Strategy -eq 'ClosestRelevant') { break }
     }
 
-    return [pscustomobject]@{
-        DepartmentOU = $department
-        OUPath       = ($ous -join ' / ')
+    [pscustomobject]@{
+        Department = $department
+        OUPath     = $ous -join ' / '
     }
 }
 
 function Protect-CsvCell {
     param([AllowNull()]$Value)
 
-    if ($null -eq $Value) {
-        return ''
-    }
-
+    if ($null -eq $Value) { return '' }
     $text = [string]$Value
-    $formulaAfterOptionalWhitespace = '^[\x00-\x20]*[=+\-@\uFF1D\uFF0B\uFF0D\uFF20]'
-
-    if ($text -match '^[\t\r\n]' -or $text -match $formulaAfterOptionalWhitespace) {
-        return "'$text"
-    }
-
-    return $text
+    if ($text -match '^(?:[\t\r\n]|[\x00-\x20]*[=+\-@\uFF1D\uFF0B\uFF0D\uFF20])') { return "'$text" }
+    $text
 }
 
-function Resolve-InventoryOutputPath {
+function Resolve-OutputPath {
     param(
         [AllowEmptyString()][string]$RequestedPath,
         [switch]$AllowNetworkOutput
     )
 
     if ([string]::IsNullOrWhiteSpace($RequestedPath)) {
-        $reportRoot = Join-Path -Path ([Environment]::GetFolderPath('MyDocuments')) -ChildPath 'AD-ATLAS-Reports'
-        $fileName = 'AD-ATLAS_{0}_{1}.csv' -f `
-            (Get-Date).ToString('yyyyMMdd_HHmmss'), `
+        $root = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'AD-ATLAS-Reports'
+        $name = 'AD-ATLAS_{0}_{1}.csv' -f (Get-Date -Format 'yyyyMMdd_HHmmss'),
             ([guid]::NewGuid().ToString('N').Substring(0, 6))
-        $RequestedPath = Join-Path -Path $reportRoot -ChildPath $fileName
+        $RequestedPath = Join-Path $root $name
     }
 
-    $provider = $null
-    $drive = $null
-    $resolvedPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
-        $RequestedPath,
-        [ref]$provider,
-        [ref]$drive
+    $provider = $drive = $null
+    $path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+        $RequestedPath, [ref]$provider, [ref]$drive
     )
-
-    if ($provider.Name -ne 'FileSystem') {
-        throw "OutputPath must use the FileSystem provider: '$RequestedPath'."
-    }
-
-    if (-not $AllowNetworkOutput -and $resolvedPath.StartsWith('\\')) {
-        throw "Direct UNC output requires -AllowNetworkOutput: '$RequestedPath'."
-    }
-
-    if ([System.IO.Path]::GetExtension($resolvedPath) -ine '.csv') {
-        throw "OutputPath must end in .csv: '$resolvedPath'."
-    }
-
-    if (Test-Path -LiteralPath $resolvedPath -PathType Container) {
-        throw "OutputPath points to a directory: '$resolvedPath'. Select a CSV filename."
-    }
-
-    if (Test-Path -LiteralPath $resolvedPath -PathType Leaf) {
-        throw "Output file already exists: '$resolvedPath'. Select a new filename to avoid overwriting data."
-    }
-
-    $parentDirectory = Split-Path -Path $resolvedPath -Parent
-    if ([string]::IsNullOrWhiteSpace($parentDirectory)) {
-        throw "Could not determine the parent directory for '$resolvedPath'."
-    }
-
-    if (-not (Test-Path -LiteralPath $parentDirectory -PathType Container)) {
-        $null = New-Item -ItemType Directory -Path $parentDirectory -Force -ErrorAction Stop
-    }
-
-    return $resolvedPath
+    if ($provider.Name -ne 'FileSystem') { throw "OutputPath must use FileSystem: '$RequestedPath'." }
+    $network = $path.StartsWith('\\') -or ($null -ne $drive -and [string]$drive.DisplayRoot -like '\\*')
+    if ($network -and -not $AllowNetworkOutput) { throw "Network output requires -AllowNetworkOutput: '$RequestedPath'." }
+    if ([IO.Path]::GetExtension($path) -ine '.csv') { throw "OutputPath must end in .csv: '$path'." }
+    if (Test-Path -LiteralPath $path) { throw "Output path already exists: '$path'." }
+    $null = [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($path))
+    $path
 }
 
-function Show-InventorySummary {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
-        'PSAvoidUsingWriteHost',
-        '',
-        Justification = 'Write-Host is used only for the small interactive console summary.'
-    )]
+function Export-Inventory {
     param(
-        [int]$ComputerCount,
-        [int]$DepartmentCount,
-        [int]$UnclassifiedCount,
+        [AllowEmptyCollection()][object[]]$Rows,
         [string]$Path
     )
 
-    $asciiArt = @(
-        '    _  _____ _        _    ____'
-        '   / \|_   _| |      / \  / ___|'
-        '  / _ \ | | | |     / _ \ \___ \'
-        ' / ___ \| | | |___ / ___ \ ___) |'
-        '/_/   \_\_| |_____/_/   \_\____/'
-    )
-
-    $artWidth = [int]($asciiArt | Measure-Object -Property Length -Maximum).Maximum
-    $separator = '-' * $artWidth
-    $consoleWidth = 80
-
+    $temp = '{0}.{1}.tmp' -f $Path, [guid]::NewGuid().ToString('N')
     try {
-        if ([Console]::WindowWidth -gt 0) {
-            $consoleWidth = [Console]::WindowWidth
+        if ($Rows.Count) {
+            $Rows | ForEach-Object {
+                [pscustomobject][ordered]@{
+                    Department             = Protect-CsvCell $_.Department
+                    ComputerName           = Protect-CsvCell $_.ComputerName
+                    OrganizationalUnitPath = Protect-CsvCell $_.OrganizationalUnitPath
+                }
+            } | Export-Csv -LiteralPath $temp -NoTypeInformation -Encoding UTF8 -NoClobber -ErrorAction Stop
         }
+        else {
+            $header = '"Department","ComputerName","OrganizationalUnitPath"' + [Environment]::NewLine
+            [IO.File]::WriteAllText($temp, $header, [Text.UTF8Encoding]::new($true))
+        }
+        [IO.File]::Move($temp, $Path)
     }
-    catch {
-        $consoleWidth = 80
+    finally {
+        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
     }
-
-    $paddingCount = [int][Math]::Max(0, [Math]::Floor(($consoleWidth - $separator.Length) / 2))
-    $leftPadding = ' ' * $paddingCount
-
-    Write-Host -Object ''
-    foreach ($line in $asciiArt) {
-        Write-Host -Object ($leftPadding + $line.TrimEnd()) -ForegroundColor White
-    }
-    Write-Host -Object ($leftPadding + 'ACTIVE DIRECTORY OU MAP') -ForegroundColor DarkGray
-    Write-Host -Object ($leftPadding + ("{0}  |  v{1}" -f $script:VendorName, $script:ToolVersion)) -ForegroundColor DarkGray
-    Write-Host -Object ($leftPadding + $separator) -ForegroundColor DarkGray
-    Write-Host -Object ($leftPadding + ' Computers      : ') -NoNewline -ForegroundColor DarkGray
-    Write-Host -Object $ComputerCount -ForegroundColor Green
-    Write-Host -Object ($leftPadding + ' Departments    : ') -NoNewline -ForegroundColor DarkGray
-    Write-Host -Object $DepartmentCount -ForegroundColor Green
-    Write-Host -Object ($leftPadding + ' Unclassified   : ') -NoNewline -ForegroundColor DarkGray
-    Write-Host -Object $UnclassifiedCount -ForegroundColor Green
-    Write-Host -Object ($leftPadding + $separator) -ForegroundColor DarkGray
-    Write-Host -Object ($leftPadding + ' CSV            : ') -NoNewline -ForegroundColor DarkGray
-    Write-Host -Object $Path -ForegroundColor White
-    Write-Host -Object ''
 }
 
-# Dot-sourcing loads the helper functions without running the inventory.
-if ($MyInvocation.InvocationName -eq '.') {
-    return
-}
-
-if (-not $AllComputers) {
-    throw 'Use -AllComputers to confirm that you want to inventory every computer object in the current domain.'
-}
+if ($MyInvocation.InvocationName -eq '.') { return }
+$ErrorActionPreference = 'Stop'
+if (-not $AllComputers) { throw 'Use -AllComputers to confirm the full-domain inventory.' }
 
 try {
-    Import-Module -Name ActiveDirectory -ErrorAction Stop
+    Import-Module (Join-Path $PSHOME 'Modules\ActiveDirectory\ActiveDirectory.psd1') -ErrorAction Stop
 }
 catch {
-    throw 'The ActiveDirectory PowerShell module was not found or could not be loaded. Install the RSAT Active Directory tools and try again.'
+    throw 'Use 64-bit Windows PowerShell 5.1 with RSAT Active Directory tools installed.'
 }
 
-$resultLimit = $MaxComputers + 1
-$computers = @(
-    Get-ADComputer -Filter '*' -ResultSetSize $resultLimit -ErrorAction Stop
-)
+$ignored = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($ou in $IgnoreOUs) { if (-not [string]::IsNullOrWhiteSpace($ou)) { $null = $ignored.Add($ou) } }
+$departments = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+$unclassified = 0
 
+$searchBase = [string](Get-ADRootDSE -ErrorAction Stop).DefaultNamingContext
+if ([string]::IsNullOrWhiteSpace($searchBase)) { throw 'Active Directory returned no default naming context.' }
+$computers = @(Get-ADComputer -Filter '*' -SearchBase $searchBase -Properties CanonicalName `
+        -ResultSetSize ($MaxComputers + 1) -ErrorAction Stop)
 if ($computers.Count -gt $MaxComputers) {
-    throw @"
-The domain contains more than $MaxComputers computer objects. No CSV was created.
-Review the expected domain size, then rerun with a deliberate higher limit, for example:
-  .\Get-AD-ATLAS.ps1 -AllComputers -MaxComputers 50000
-"@
+    throw "The domain contains more than $MaxComputers computers. No CSV was created. Increase -MaxComputers deliberately."
 }
 
-$rows = @(
-    foreach ($computer in $computers) {
-        $ouInfo = Resolve-DepartmentOU `
-            -DistinguishedName ([string]$computer.DistinguishedName) `
-            -IgnoreOUs $IgnoreOUs `
-            -Strategy $DepartmentStrategy
-
-        $department = [string]$ouInfo.DepartmentOU
+$rows = @(foreach ($computer in $computers) {
+        $info = Resolve-Department -CanonicalName ([string]$computer.CanonicalName) -IgnoredOUs $ignored -Strategy $DepartmentStrategy
+        $department = [string]$info.Department
         if ([string]::IsNullOrWhiteSpace($department)) {
             $department = '[Unclassified]'
+            $unclassified++
         }
+        else { $null = $departments.Add($department) }
 
         [pscustomobject][ordered]@{
             Department             = $department
             ComputerName           = [string]$computer.Name
-            OrganizationalUnitPath = [string]$ouInfo.OUPath
+            OrganizationalUnitPath = [string]$info.OUPath
         }
-    }
-)
-$rows = @($rows | Sort-Object -Property Department, ComputerName)
+    })
+$rows = @($rows | Sort-Object Department, ComputerName)
 
-$resolvedOutputPath = Resolve-InventoryOutputPath `
-    -RequestedPath $OutputPath `
-    -AllowNetworkOutput:$AllowNetworkOutput
-
-$protectedRows = @(
-    foreach ($row in $rows) {
-        [pscustomobject][ordered]@{
-            Department             = Protect-CsvCell -Value $row.Department
-            ComputerName           = Protect-CsvCell -Value $row.ComputerName
-            OrganizationalUnitPath = Protect-CsvCell -Value $row.OrganizationalUnitPath
-        }
-    }
-)
-
-if ($protectedRows.Count -eq 0) {
-    Out-File `
-        -LiteralPath $resolvedOutputPath `
-        -Encoding UTF8 `
-        -NoClobber `
-        -InputObject '"Department","ComputerName","OrganizationalUnitPath"' `
-        -ErrorAction Stop
-}
-else {
-    $protectedRows |
-        Export-Csv -LiteralPath $resolvedOutputPath -NoTypeInformation -Encoding UTF8 -NoClobber -ErrorAction Stop
-}
-
-$departmentCount = @(
-    $rows |
-        Where-Object -FilterScript { $_.Department -ne '[Unclassified]' } |
-        ForEach-Object -Process { [string]$_.Department } |
-        Sort-Object -Unique
-).Count
-$unclassifiedCount = @($rows | Where-Object -FilterScript { $_.Department -eq '[Unclassified]' }).Count
-
-Show-InventorySummary `
-    -ComputerCount $rows.Count `
-    -DepartmentCount $departmentCount `
-    -UnclassifiedCount $unclassifiedCount `
-    -Path $resolvedOutputPath
+$path = Resolve-OutputPath -RequestedPath $OutputPath -AllowNetworkOutput:$AllowNetworkOutput
+Export-Inventory -Rows $rows -Path $path
+Write-Information -MessageData ("`nAD ATLAS | v1.5.0`nComputers: $($rows.Count)`nDepartments: $($departments.Count)`nUnclassified: $unclassified`nCSV: $path`n") -InformationAction Continue
