@@ -12,7 +12,7 @@ AD ATLAS is a PowerShell script that inventories computer objects in the current
 
 ## Install
 
-You need 64-bit Windows PowerShell 5.1, the RSAT Active Directory module, domain connectivity, and permission to read computer objects. Run it as a normal domain user unless your environment has restricted directory-read permissions; Domain Admin is not required.
+Requires PowerShell 5.1, RSAT Active Directory tools, and domain access. A standard domain account is sufficient; Domain Admin privileges are not required.
 
 ```powershell
 git clone https://github.com/delriscotechnologies/ad-atlas.git
