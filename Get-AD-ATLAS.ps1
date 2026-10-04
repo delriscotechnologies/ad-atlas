@@ -44,10 +44,10 @@ function Resolve-Department {
     )
 
     $parts = @(Split-CanonicalName $CanonicalName)
-    $ous = if ($parts.Count -gt 2) {
+    $ous = @(if ($parts.Count -gt 2) {
         @($parts[1..($parts.Count - 2)] | ForEach-Object { $_.Replace('\/', '/').Replace('\\', '\') })
     }
-    else { @() }
+    else { @() })
     [array]::Reverse($ous)
 
     $department = ''
@@ -170,3 +170,4 @@ $rows = @($rows | Sort-Object Department, ComputerName)
 $path = Resolve-OutputPath -RequestedPath $OutputPath -AllowNetworkOutput:$AllowNetworkOutput
 Export-Inventory -Rows $rows -Path $path
 Write-Information -MessageData ("`nAD ATLAS | v1.5.0`nComputers: $($rows.Count)`nDepartments: $($departments.Count)`nUnclassified: $unclassified`nCSV: $path`n") -InformationAction Continue
+
