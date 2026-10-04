@@ -73,9 +73,3 @@ OrganizationalUnitPath: Laptops / Finance / Devices
 - Department mapping is based on OU structure and should be reviewed for your environment.
 - Real reports may contain internal computer names and OU information.
 - Local output is the default. UNC and mapped-network-drive output require `-AllowNetworkOutput`.
-
-See [SECURITY.md](SECURITY.md) for security guidance.
-
-## License
-
-AD ATLAS is available under the [MIT License](LICENSE).
