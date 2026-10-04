@@ -170,4 +170,3 @@ $rows = @($rows | Sort-Object Department, ComputerName)
 $path = Resolve-OutputPath -RequestedPath $OutputPath -AllowNetworkOutput:$AllowNetworkOutput
 Export-Inventory -Rows $rows -Path $path
 Write-Information -MessageData ("`nAD ATLAS | v1.5.0`nComputers: $($rows.Count)`nDepartments: $($departments.Count)`nUnclassified: $unclassified`nCSV: $path`n") -InformationAction Continue
-
